@@ -1,8 +1,6 @@
 # 🏦 BankCrypto - Secure Banking System
 
 <div align="center">
-  
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?logo=Streamlit&logoColor=white)](https://streamlit.io/)
 [![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?logo=supabase&logoColor=white)](https://supabase.io/)
@@ -159,18 +157,3 @@ Detailed documentation including:
 - Data Flow Diagrams (`SvgDFD.svg`)
 - Database Design (`DBdesign.png`)
 - Full Documentation (`Documentation.pdf`)
-
-## 👥 Team
-
-- [Your Name] - Project Developer
-- [Supervisor Name] - Academic Supervisor
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-<div align="center">
-  Built with security and privacy in mind 🛡️
-</div> 
