@@ -1,5 +1,6 @@
+import uuid
 import streamlit as st
-from supabase import create_client, Client
+from sqlmodel import Session, select
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.backends import default_backend
@@ -8,17 +9,34 @@ import jwt
 import os
 import base64
 from datetime import datetime, timedelta
+from init_db import engine, User, Transaction, create_db_and_tables, seed_initial_data
 
-# Initialize Supabase
+# Initialize database and seed data
 @st.cache_resource
-def init_supabase():
-    supabase: Client = create_client(
-        st.secrets["supabase"]["url"],
-        st.secrets["supabase"]["key"]
-    )
-    return supabase
+def init_database():
+    try:
+        if create_db_and_tables():
+            pass
+            if seed_initial_data():
+                pass
+            else:
+                st.error("Failed to seed initial data")
+                st.stop()
+        else:
+            st.error("Failed to create database tables")
+            st.stop()
+    except Exception as e:
+        st.error(f"Error during initialization: {str(e)}")
+        st.stop()
 
-supabase = init_supabase()
+# Initialize database session
+@st.cache_resource
+def get_session():
+    return Session(engine)
+
+# Initialize the database when the app starts
+init_database()
+session = get_session()
 
 # Encryption/Decryption functions
 def get_encryption_key():
@@ -79,45 +97,67 @@ def verify_jwt(token: str) -> dict:
 
 # User management
 def create_user(username: str, password: str):
-    iv = os.urandom(16)
-    encrypted_balance = encrypt_data("1000", iv)
-    
-    user = {
-        "username": username,
-        "hashed_password": hash_password(password),
-        "iv": base64.b64encode(iv).decode(),
-        "balance": encrypted_balance
-    }
-    
-    supabase.table("users").insert(user).execute()
+    try:
+        iv = os.urandom(16)
+        encrypted_balance = encrypt_data("1000", iv)
+        
+        user = User(
+            id=str(uuid.uuid4()),
+            username=username,
+            hashed_password=hash_password(password),
+            iv=base64.b64encode(iv).decode(),
+            balance=encrypted_balance
+        )
+        session.add(user)
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        st.error(f"Error creating user: {str(e)}")
+        return False
 
 def get_user(username: str):
-    response = supabase.table("users").select("*").eq("username", username).execute()
-    return response.data[0] if response.data else None
+    return session.exec(select(User).where(User.username == username)).first()
 
 # Transaction functions
 def update_balance(username: str, amount: float):
     user = get_user(username)
-    iv = base64.b64decode(user["iv"])
-    current_balance = float(decrypt_data(user["balance"], iv))
-    new_balance = current_balance + amount
-    encrypted_balance = encrypt_data(str(new_balance), iv)
-    
-    supabase.table("users").update({"balance": encrypted_balance})\
-           .eq("username", username).execute()
+    if user:
+        iv = base64.b64decode(user.iv)
+        current_balance = float(decrypt_data(user.balance, iv))
+        new_balance = current_balance + amount
+        user.balance = encrypt_data(str(new_balance), iv)
+        session.commit()
 
 def create_transaction(sender: str, receiver: str, amount: float):
-    sender_user = get_user(sender)
-    iv = base64.b64decode(sender_user["iv"])
-    
-    transaction = {
-        "sender": encrypt_data(sender, iv),
-        "receiver": encrypt_data(receiver, iv),
-        "amount": encrypt_data(str(amount), iv),
-        "timestamp": datetime.now().isoformat()
-    }
-    
-    supabase.table("transactions").insert(transaction).execute()
+    try:
+        sender_user = get_user(sender)
+        if not sender_user:
+            st.error("Sender not found")
+            return False
+            
+        receiver_user = get_user(receiver)
+        if not receiver_user:
+            st.error("Receiver not found")
+            return False
+            
+        iv = base64.b64decode(sender_user.iv)
+        
+        transaction = Transaction(
+            sender_id=sender_user.id,
+            receiver_id=receiver_user.id,
+            amount=encrypt_data(str(amount), iv),
+            encrypted_sender=encrypt_data(sender, iv),
+            encrypted_receiver=encrypt_data(receiver, iv),
+            timestamp=datetime.now().isoformat()
+        )
+        session.add(transaction)
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        st.error(f"Transaction failed: {str(e)}")
+        return False
 
 # Streamlit UI
 def main():
@@ -137,7 +177,7 @@ def main():
                 
                 if st.form_submit_button("Login"):
                     user = get_user(username)
-                    if user and check_password(password, user["hashed_password"]):
+                    if user and check_password(password, user.hashed_password):
                         st.session_state.jwt = create_jwt(username)
                         st.rerun()
                     else:
@@ -165,8 +205,13 @@ def main():
         
         username = payload["sub"]
         user = get_user(username)
-        iv = base64.b64decode(user["iv"])
-        balance = float(decrypt_data(user["balance"], iv))
+        if not user:
+            st.error("User not found")
+            st.session_state.jwt = None
+            st.rerun()
+            
+        iv = base64.b64decode(user.iv)
+        balance = float(decrypt_data(user.balance, iv))
         
         st.subheader(f"Welcome {username}")
         st.write(f"Current Balance: ${balance:.2f}")
